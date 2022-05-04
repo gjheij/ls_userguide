@@ -78,6 +78,7 @@ keywords: Linescanning, Ultrahigh field, fMRI, Finite Impulse Response, Populati
 - [Dealing with line-scanning data](#dealing-with-line-scanning-data)
   - [Preprocessing](#preprocessing)
   - [Analysis](#analysis)
+    - [HRF-fitting](#hrf-fitting)
     - [pRF-modeling](#prf-modeling)
 - [Acknowledgments](#acknowledgments)
 - [References](#references)
@@ -272,6 +273,7 @@ The output should look something like this:
 ![*Figure 2*. Example output of `spinoza_lineplanning`-module. It will return which orientation the slice should have (sagittal/coronal), the foldover i.e., saturation slab direction (AP/FH/LR) and the translation/orientation parameters](figs/module00_terminal_output.png)
 
 Now that you have your slice/line in the right orientation, you can continue with your experiments. For each run, acquire the following:
+
 - Slice **with** phase encoding and saturation slabs **OFF** (reference anatomy slice)
 - Slice **with** phase encoding and saturation slabs **ON** (slice for reconstruction)
 - Slice **without** phase encoding and saturation slabs **ON** (line-scanning)
@@ -280,7 +282,7 @@ Now that you have your slice/line in the right orientation, you can continue wit
 
 ## Preprocessing
 
-Similar to `ses-1`, we need to convert our data to a format we can work with. Whereas for most analyses this is `nii.gz`, line-scanning data is reconstructed into `.mat`-files. The [line-scanning](https://github.com/gjheij/linescanning/tree/main) is tailored for this type of data. But first, let's convert our data. The `-n` flag will now trigger a different script as it's not `prf` or `1`:
+Similar to `ses-1`, we need to convert our data to a format we can work with. Whereas for most analyses this is `nii.gz`, line-scanning data is reconstructed into `.mat`-files. The [line-scanning](https://github.com/gjheij/linescanning/tree/main) package is tailored for this type of data. But first, let's convert our data. The `-n` flag will now trigger a different script as it's not `prf` or `1`:
 ```bash
 master -m 02 -n 2 # -s <subject ID>
 ```
@@ -290,7 +292,7 @@ Now we run the reconstruction following `Luisa`'s pipeline. The `-x 5` means we 
 master -m 03 -n 2 -x 5 -j
 ```
 
-Because line-scanning data is extremely noisy, we need some additional steps to clean the data up. One method is anatomical component correction, or `aCompCor`. This regresses out the frequencies from white matter and CSF voxels. To do this, we need to know where our line was relative to the anatomy. For this, you'd say we can use the segmentations we made in `ses-1` and the registration matrix between the sessions to map the segmentations into the slice. However, this mapping is created using `FreeSurfer` input, while the segmentations are in `native` space. Thus, the dimensions are different and therefore this transformation matrix cannot be used directly. We can run the following to get the correct mapping stored in `project/derivatives/pycortex/<subject>/transforms/<subject>_ses-<ses>_from-ses1_to_ses<ses>_desc-genaff.mat`:
+Because line-scanning data is extremely noisy, we need some additional steps to clean the data up. One method is anatomical component correction, or `aCompCor`[@BehzadiY2007]. This regresses out the frequencies from white matter and CSF voxels. To do this, we need to know where our line was relative to the anatomy. For this, you'd say we can use the segmentations we made in `ses-1` and the registration matrix between the sessions to map the segmentations into the slice. However, this mapping is created using `FreeSurfer` input, while the segmentations are in `native` space. Thus, the dimensions are different and therefore this transformation matrix cannot be used directly. We can run the following to get the correct mapping stored in `project/derivatives/pycortex/<subject>/transforms/<subject>_ses-<ses>_from-ses1_to_ses<ses>_desc-genaff.mat`:
 ```bash
 call_ses1_to_ses -s <subject> -n <session ID>
 ```
@@ -300,7 +302,11 @@ This deals with session to session transformation, but does not deal with motion
 call_createident from-run1_to-run1.txt
 ```
 
-This makes the scripting/processing later on slightly easier as we're not dealing with exceptional cases: each run has the same type of files. Now do some analysis, such as the one specified [here](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html). Note that the analysis aspect of the project is still very much in progress, so stuff changes regularly. The most current implementation looks as follows (open a new `jupyter notebook` or `python script`, whichever way you like, though I recommend a notebook as it allows you to explore the structure of the data in a more accessible way):
+This makes the scripting/processing later on slightly easier as we're not dealing with exceptional cases: each run has the same type of files. After preprocessing (filtering, standardizing, and aCompCor) each run, the probability maps are averaged, new voxel classification is made, and a separate dataframe with GM-voxels is created. We can also specify a range in which we need to look for voxels to create a dataframe just with voxels in the vicinity of our ribbon. For instance, the range can be `[355,375]`. It then looks for the GM-voxels based on the new classification within this range to create a ribbon-dataframe. This latter one is very compatible with the Nideconv fitting (especially the plotting part), as it's not that many voxels. 
+
+## Analysis
+
+We are currently running multiple experiments with the line, including `Size-Response`, `motor`, and `pRF`-experiments. The most straight forward application of line-scanning is looking at signals across depth, as we have literal voxels across the ribbon. So, no interpolation or other tricks are required to get `laminar` results. These kinds of analysis are easily implemented in the [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) as per [this example](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html). To do some analysis, we can use the block of code below for all experiments, as it does basic filtering, aCompCor, and formatting of the final dataframe. This final dataframe can be used in conjuction with [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) or with the [pRF-modeling](#prf-modeling).
 
 ```python
 from linescanning import utils, dataset
@@ -333,13 +339,54 @@ data_obj = dataset.Dataset(func_file,
                            run_2_run=trafo_run,
                            voxel_cutoff=300, # voxels lower than this are not considered for aCompCor as they are too far away from the coil to be relevant
                            save_as=opj(anat_dir, f"sub-{sub}_ses-{ses}"))
+
+# fetch final dataframe with functional data, indexed per subject and run
+df_func = data_obj.fetch_fmri()
+
+# fetch onset times indexed per subject, run, and event
+df_onsets = data_obj.fetch_onsets()                           
 ```
 
-After preprocessing (filtering, standardizing, and aCompCor) each run, the probability maps are averaged, new voxel classification is made, and a separate dataframe with GM-voxels is created (`data_obj.gm_df`). We can also specify a range in which we need to look for voxels to create a dataframe just with voxels in the vicinity of our ribbon. For instance, the range can be `[355,375]`. It then looks for the GM-voxels based on the new classification within this range to create a ribbon-dataframe (`data_obj.ribbon_df`). This latter one is very compatible with the Nideconv fitting (especially the plotting part), as it's not that many voxels. 
+The final lines correspond to cell [3] in the [tutorial](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html).
 
-## Analysis
+### HRF-fitting
 
-We are currently running multiple experiments with the line, including `Size-Response`, `motor`, and `pRF`-experiments. The most straight forward application of line-scanning is looking at signals across depth, as we have literal voxels across the ribbon. So, no interpolation or other tricks are required to get `laminar` results. These kinds of analysis are easily implemented in the [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) as per [this example](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html). It rests on the output from the chunk of code above, and allows you to probe HRF-properties in various ways (e.g., across depth, across events, etc). The `pRF`-analysis mostly rests on a separate package which is currently not public. 
+The main power of line-scanning is HRF-mapping across depth. Ideally, we don't want to fit and plot 720 voxels that we have in the line. We need to select some voxels of interest (check the tissue segmentation in slice for the correct voxels!):
+
+```python
+df_ribbon = utils.select_from_df(df_func, expression='ribbon', indices=(359,365))
+```
+
+This will create a dataframe similar to `df_func` (same indexing), but then for a few voxels. This we can use in the `NideconvFitter`:
+```python
+nd_fit = utils.NideconvFitter(df_ribbon,
+                              df_onsets,
+                              confounds=None,
+                              basis_sets='fourier',
+                              n_regressors=19,
+                              lump_events=False,
+                              TR=0.105,
+                              interval=[0,12],
+                              add_intercept=True,
+                              verbose=True)
+```
+
+This creates HRFs for each event in your onset dataframe. We can also 'lump' the events to get an average of the HRF across events:
+```python
+lumped = utils.NideconvFitter(df_ribbon,
+                              df_onsets,
+                              confounds=None,
+                              basis_sets='fourier',
+                              n_regressors=11,
+                              lump_events=True,
+                              TR=0.105,
+                              interval=[0,12],
+                              add_intercept=True,
+                              verbose=True,
+                              fit_type='ols')
+```
+
+Check the [tutorial](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html) for the plots.
 
 ### pRF-modeling
 
