@@ -286,7 +286,7 @@ $endif$
 
 $if(title)$
 \title{\begin{center}
-\textsc{\huge{$title$\\}}
+\textsc{\huge{\\$title$\\\line(1,0){400}}}
 $if(extratitle)$\textrm{$extratitle$\\}$endif$
 \vspace{10pt}
 $if(acronym)$\textsc{\huge{$acronym$\\}}$endif$
@@ -332,12 +332,12 @@ $endif$
 $if(keywords)$
     \textsc{\textbf{Keywords: }}
     \begingroup
-    \leftskip4em
-    \rightskip\leftskip
+    % \leftskip4em
+    % \rightskip\leftskip
     \textsc{\begin{center}$for(keywords)$$keywords$$sep$; $endfor$\end{center}}
     \par
     \endgroup
-    \vspace{1.5cm}
+    % \vspace{1.5cm}
 $endif$
 
 \newpage

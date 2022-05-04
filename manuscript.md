@@ -2,24 +2,24 @@
 title: "User guide for line-scanning fMRI at 7T"
 author:
   - name: G.J. Heij
-    institute: spin
+    institute: [spin, nin]
+    email: j.heij@spinozacentre.nl
+    correspondence: True
   - name: L. Raimondo
-    institute: spin
+    institute: [spin, nin]
   - name: J.W.C. Siero
-    institute: [spin,umc]
+    institute: [umc]
   - name: S.O. Dumoulin
-    institute: [spin, vu_exp]
+    institute: [spin, nin, vu]
   - name: W. van der Zwaag
-    institute: spin
-  - T. Knapen:
-      email: t.knapen@spinozacentre.nl
-      institute: [spin, vu_cog]
-      correspondence: true
+    institute: [spin, nin]
+  - name: T. Knapen
+    institute: [spin, nin, vu]
 institute:
   - spin: Spinoza Centre for Neuroimaging, Royal Netherlands Academy of Sciences, Amsterdam, the Netherlands
+  - nin: Computational Cognitive Neuroscience and Neuroimaging, Netherlands Institute for Neuroscience, Amsterdam, The Netherlands
   - umc: Radiology, University Medical Centre Utrecht, Utrecht, Netherlands
-  - vu_exp: Experimental and Applied Psychology, VU University, Amsterdam, Netherlands
-  - vu_cog: Cognitive Psychology, Vrije Universiteit, Amsterdam, the Netherlands
+  - vu: Experimental and Applied Psychology, VU University, Amsterdam, Netherlands
 fontsize: 10pt
 documentclass: article
 mainfont: Minion Pro # LexiconNo2RomanA
