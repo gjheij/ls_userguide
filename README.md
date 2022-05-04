@@ -9,7 +9,7 @@ version_NR=1
 ./create.sh ${version_NR}
 ```
 
-This will generate the pdf file from md using latex/pandoc
+This will generate the pdf file from md using latex/pandoc in `versions/md_*`. You can download the PDF of read it online.
 
 # Install fonts
 
