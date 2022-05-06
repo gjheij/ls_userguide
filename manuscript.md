@@ -38,7 +38,7 @@ biblio-title: false
 bibliography: true
 colorlinks: true
 toccolor: blue
-indent: true
+indent: False
 linestretch: 1.25
 linenumber: False
 numbersections: false
@@ -54,6 +54,7 @@ textfloatsep: 15pt
 fancyleft: GJ Heij, et al
 fancyright: User guide for line-scanning fMRI at 7T
 keywords: Linescanning, Ultrahigh field, fMRI, Finite Impulse Response, Population Receptive Field, Hemifield
+listings-disable-line-numbers: True
 ---
 
 \newpage
@@ -299,14 +300,14 @@ call_ses1_to_ses -s <subject> -n <session ID>
 
 This deals with session to session transformation, but does not deal with motion between runs. We cannot observe *all* movement with our slices, but we can optimize it to the best of our abilities. We do this by manually aligning the first slice image to the slice image of subsequent runs using `ITK-Snap`. Make sure the reference image is **NOT** the slice of the first run. This is the moving image! Save the transformations as `from-run1_to-run-X.txt` in `DIR_DATA_HOME/sub-XXX/ses-X/anat`. For the first slice, we can create a similar file but then with the identity matrix using:
 ```bash
-call_createident from-run1_to-run1.txt
+call_createident $DIR_DATA_HOME/sub-XXX/ses-X/anat/from-run1_to-run1.txt
 ```
 
 This makes the scripting/processing later on slightly easier as we're not dealing with exceptional cases: each run has the same type of files. After preprocessing (filtering, standardizing, and aCompCor) each run, the probability maps are averaged, new voxel classification is made, and a separate dataframe with GM-voxels is created. We can also specify a range in which we need to look for voxels to create a dataframe just with voxels in the vicinity of our ribbon. For instance, the range can be `[355,375]`. It then looks for the GM-voxels based on the new classification within this range to create a ribbon-dataframe. This latter one is very compatible with the Nideconv fitting (especially the plotting part), as it's not that many voxels. 
 
 ## Analysis
 
-We are currently running multiple experiments with the line, including `Size-Response`, `motor`, and `pRF`-experiments. The most straight forward application of line-scanning is looking at signals across depth, as we have literal voxels across the ribbon. So, no interpolation or other tricks are required to get `laminar` results. These kinds of analysis are easily implemented in the [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) as per [this example](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html). To do some analysis, we can use the block of code below for all experiments, as it does basic filtering, aCompCor, and formatting of the final dataframe. This final dataframe can be used in conjuction with [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) or with the [pRF-modeling](#prf-modeling).
+We are currently running multiple experiments with the line, including `Size-Response`, `motor`, and `pRF`-experiments. The most straight forward application of line-scanning is looking at signals across depth, as we have literal voxels across the ribbon. So, no interpolation or other tricks are required to get `laminar` results. These kinds of analysis are easily implemented in the [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) as per [this](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html) and [this](https://linescanning.readthedocs.io/en/latest/examples/acompcor.html) example. To do some analysis, we can use the block of code below for all experiments, as it does basic filtering, aCompCor, and formatting of the final dataframe. This final dataframe can be used in conjuction with [NideconvFitter](https://github.com/gjheij/linescanning/blob/main/linescanning/utils.py#L1314) or with the [pRF-modeling](#prf-modeling).
 
 ```python
 from linescanning import utils, dataset
@@ -357,21 +358,62 @@ The main power of line-scanning is HRF-mapping across depth. Ideally, we don't w
 df_ribbon = utils.select_from_df(df_func, expression='ribbon', indices=(359,365))
 ```
 
-This will create a dataframe similar to `df_func` (same indexing), but then for a few voxels. This we can use in the `NideconvFitter`:
+This will create a dataframe similar to `df_func` (same indexing), but then for a few voxels. This we can use in the `NideconvFitter`. For instance, we can fit the shape of the HRF with `canonical HRF` basis sets (Figure 3):
+
 ```python
-nd_fit = utils.NideconvFitter(df_ribbon,
-                              df_onsets,
-                              confounds=None,
-                              basis_sets='fourier',
-                              n_regressors=19,
-                              lump_events=False,
-                              TR=0.105,
-                              interval=[0,12],
-                              add_intercept=True,
-                              verbose=True)
+# we can fit with canonical HRFs
+nd_gamma = utils.NideconvFitter(df_ribbon,
+                                df_onsets,
+                                confounds=None,
+                                basis_sets='canonical_hrf_with_time_derivative',
+                                n_regressors=None,
+                                lump_events=False,
+                                TR=0.105,
+                                interval=[0, 12],
+                                add_intercept=True,
+                                verbose=True)
+
+nd_gamma.plot_average_per_event(xkcd=False,
+                                labels=[f"{round(float(ii),2)} dva" for ii in nd_gamma.cond],
+                                alpha=0.2,
+                                figsize=(8, 8),
+                                x_label="time (s)",
+                                y_label="Magnitude (%)",
+                                add_hline='default',
+                                sns_trim=True,
+                                save_as=opj(func_dir, "hrf_canonical.png"))
 ```
 
-This creates HRFs for each event in your onset dataframe. We can also 'lump' the events to get an average of the HRF across events:
+![*Figure 3*. HRF-fitting with canonical HRF basis sets](figs/hrf_canonical.png){ width=60% }
+
+Or we can fit with Fourier basis sets (Figure 4):
+```python?line_numbers=false
+# we can fit with fourier
+nd_fourier = utils.NideconvFitter(df_ribbon,
+                                  df_onsets,
+                                  confounds=None,
+                                  basis_sets='fourier',
+                                  n_regressors=11,
+                                  lump_events=False,
+                                  TR=0.105,
+                                  interval=[0,12],
+                                  add_intercept=True,
+                                  verbose=True)
+
+nd_fourier.plot_average_per_event(xkcd=False,
+                                  labels=[f"{round(float(ii),2)} dva" for ii in nd_gamma.cond],
+                                  alpha=0.2,
+                                  figsize=(8, 8),
+                                  x_label="time (s)",
+                                  y_label="Magnitude (%)",
+                                  add_hline='default',
+                                  sns_trim=True,
+                                  save_as=opj(func_dir, "hrf_fourier.png"))
+```
+
+![*Figure 4*. HRF-fitting with Fourier basis sets](figs/hrf_fourier.png){ width=60% }
+
+This creates HRFs for each event in your onset dataframe. We can also 'lump' the events to get an average of the HRF across events (Figure 5):
 ```python
 lumped = utils.NideconvFitter(df_ribbon,
                               df_onsets,
@@ -386,13 +428,17 @@ lumped = utils.NideconvFitter(df_ribbon,
                               fit_type='ols')
 ```
 
-Check the [tutorial](https://linescanning.readthedocs.io/en/latest/examples/nideconv.html) for the plots.
+![*Figure 5*. Average HRF across events and depth](figs/hrf_average.png){ width=60% }
+
+Then, we can also average across events, but not across depth. This should give use an HRF for each voxel along the cortical ribbon (Figure 6).
+
+![*Figure 6*. HRF shape and magnitude across depth](figs/hrf_across_depth.png)
 
 ### pRF-modeling
 
-![*Figure 3*. Population receptive field (pRF) routine.](figs/prf.png)
+![*Figure 7*. Population receptive field (pRF) routine.](figs/prf.png)
 
-A pRF is a quantitative model of the cumulative response of the population of cells contained within a single fMRI voxel [@Dumoulin2008]. The pRF model can be used to estimate the response properties of populations of neurons using other measures, such as EcOG and EEG. A time course can be generated from such a model by sampling the visual stimuli within the receptive field during an experiment: the position and size of a model will then generate a model time course that will exhibit positive responses each time when a stimulus falls within its recpetive field. Note that a receptive field located at another location will produce a different time course since the stimuli will usually fall in the other model's receptive field at different moments in time. Further note that a model with a larger receptive field size will be influenced by stimuli that are further away from the pRF center than an alternative model with a smaller receptive field size even if the center of the two models is located at the same position in the visual field. if "rich" visual stimuli are used, each model will, thus, produce a unique predicted time course. The predicted time courses from different pRF models can be compared with the measured time course of a specific voxel (or vertex) and the model will be selected for that voxel if its associated time course best explains the observed time course. More specifically, a generated model time course serves as a predictor in a GLM (instead of protocol-derived predictors) and the amount of explained variance is recorded. Instead of one set of protocol-derived predictors, many GLMs will be performed for a single voxel each with a different model time course as predictor in order to find the model that leads to the highest explained variance of the voxel's time course. In order to allow a proper comparison of a model time course with observed fMRI data, a generated model time course needs to be convolved with a (standard) hemodynamic impulse response function.
+A pRF is a quantitative model of the cumulative response of the population of cells contained within a single fMRI voxel (Figure 7)[@Dumoulin2008]. The pRF model can be used to estimate the response properties of populations of neurons using other measures, such as EcOG and EEG. A time course can be generated from such a model by sampling the visual stimuli within the receptive field during an experiment: the position and size of a model will then generate a model time course that will exhibit positive responses each time when a stimulus falls within its recpetive field. Note that a receptive field located at another location will produce a different time course since the stimuli will usually fall in the other model's receptive field at different moments in time. Further note that a model with a larger receptive field size will be influenced by stimuli that are further away from the pRF center than an alternative model with a smaller receptive field size even if the center of the two models is located at the same position in the visual field. if "rich" visual stimuli are used, each model will, thus, produce a unique predicted time course. The predicted time courses from different pRF models can be compared with the measured time course of a specific voxel (or vertex) and the model will be selected for that voxel if its associated time course best explains the observed time course. More specifically, a generated model time course serves as a predictor in a GLM (instead of protocol-derived predictors) and the amount of explained variance is recorded. Instead of one set of protocol-derived predictors, many GLMs will be performed for a single voxel each with a different model time course as predictor in order to find the model that leads to the highest explained variance of the voxel's time course. In order to allow a proper comparison of a model time course with observed fMRI data, a generated model time course needs to be convolved with a (standard) hemodynamic impulse response function.
 
 # Acknowledgments
 
